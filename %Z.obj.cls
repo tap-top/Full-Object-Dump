@@ -32,7 +32,7 @@ ClassMethod dumpToStream(
 ///     fullDump = 0 : show only properties with content
 ///              = 1 : show also empty and private properties
 ///    drilldownLimit = 0  no drilldown
-///                   = 1..n  max. levelof drilldown
+///                   = 1..n  max. level of drilldown
 ///                   < 0   unlimitted drilldown
 /// </pre>   
 ClassMethod dumpToDevice(
