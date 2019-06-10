@@ -1,15 +1,12 @@
-This example is extracted from a long-running installation. The purpose is to have a simple monitoring of several servers at a rather primitive level. Just slightly more intelligent than a raw PING. But still easy to integrate. It avoids the overkill of information you are often confronted with while you are just interested in the number of active process or similar basic figures. The example shows a basic skeleton that might be easy filled by you real needs.
-
-It consists of 3 sections:
-
-- the data section to hold server access data
-- the server section to run unattended at the server you want to monitor
-- the client section that is just for demonstration and should be integrated by your code to your environment.
- 
-Operation is simple:
- 
-the server starts and listens for requests.
-
-from client various inquiries go to server and get replied.
-
-The whole example is kept very simple and it is your task to add what you require and to adapt the client section to your needs and into your environment.
+During testing your code you are are often confronted with the need to examine  
+the actual content of an object. Either using ZWRITE or $system.OBJ.Dump()  
+you get a picture of simple properties as "--- attribute values ---"  
+while "--- swizzled references ---" ar more confusing than informative  
+and with "--- calculated references ---" you are just left in the lurch.  
+  
+This small helper class allows you to dump an object to terminal or  
+e.g in background to some stream for later review.  
+By default you see just properties with content,  
+.   DO ##class(%Z.obj).dumpToDevice(obj)  
+or if explicitly requested all properties.  
+.    DO ##class(%Z.obj).dumpToDevice(obj,1)  
