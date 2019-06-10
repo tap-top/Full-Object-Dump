@@ -1,105 +1,212 @@
-/// Handle remote system managent requests
-Class %Z.remote Extends %Persistent [ Final ]
+/// Extended Object Dump
+/// including output to %Stream
+Class %Z.obj
 {
 
-Parameter SLEEP As %Integer = 5;
-
-Property Server As %String;
-
-Property IPaddr As %String(PATTERN = "1.3N1"".""1.3N1"".""1.3N1"".""1.3N");
-
-Property Listener As %Integer [ InitialExpression = 59999 ];
-
-Property Connection As %String(COLLATION = "EXACT") [ Calculated, SqlComputeCode = { set {*}={IPaddr}_":"_{Listener}}, SqlComputed ];
-
-Index con On Connection [ Unique ];
-
-/// hang around and wait for request
-ClassMethod Server() As %Status
+/// <pre>    
+/// fill result into a prepared Stream
+/// I:  sourceObject = object to be dumped
+///     outputStream = target for the result
+///     fullDump = 0 : show only properties with content
+///              = 1 : show also empty a and private properties
+///    drilldownLimit = 0  no drilldown
+///                   = 1..n  max. levelof drilldown
+///                   < 0   unlimitted drilldown
+/// </pre>   
+ClassMethod dumpToStream(
+	sourceObject As %RegisteredObject = "",
+	outputStream As %Stream.Object = "",
+	fullDump As %Boolean = 0,
+	drilldownLimit As %Integer = -1) As %Status
 {
-    set local=..%New()
-    quit local.loop()
+    New %tempStream
+    set %tempStream=##class(%Stream.TmpCharacter).%New()
+    do ..dump(sourceObject,fullDump,drilldownLimit)
+    set sc=outputStream.CopyFrom(%tempStream)
+    quit sc
 }
 
-Method loop() As %Status
+/// <pre>    
+/// WRITE result to current device
+/// I:  sourceObject = object to be dumped
+///     fullDump = 0 : show only properties with content
+///              = 1 : show also empty and private properties
+///    drilldownLimit = 0  no drilldown
+///                   = 1..n  max. levelof drilldown
+///                   < 0   unlimitted drilldown
+/// </pre>   
+ClassMethod dumpToDevice(
+	sourceObject As %RegisteredObject = "",
+	fullDump As %Boolean = 0,
+	drilldownLimit As %Integer = -1)
 {
-    set tcp="|TCP|"_..Listener
-    set $ztrap="recover"
-    set $ze="READ"
-recover
-    close tcp
-    if $ze["READ"    ; restart connection
-    else  quit $test ; terminate fo any other error 
-    open tcp:(/PORT=..Listener:/PSTE=1:/SEN=1:/CON=999):1 else  quit $test
-    for  { 
-        use tcp read request:..#SLEEP if $l(request)  do ..dispatch(.tcp,request)
+    New %tempStream
+    set %tempStream=##class(%Stream.TmpCharacter).%New()
+    do ..dump(sourceObject,fullDump,drilldownLimit)
+    set maxProperty=0
+    do %tempStream.Rewind()
+    while '%tempStream.AtEnd  {
+        set length=$length($piece(%tempStream.ReadLine(),":"))
+        if length>maxProperty set maxProperty=length
+        }
+    do %tempStream.Rewind()
+    set maxProperty=maxProperty+2
+    while '%tempStream.AtEnd  {
+        set line=%tempStream.ReadLine()
+            ,property=$p(line,":")
+            ,$p(line,":",1)=$e(property_$tr($j("",maxProperty)," ","."),1,maxProperty)
+        write line,!
+    }    
+   quit $$$OK
+}
+
+/// <pre>    
+/// fill result into a temorary Stream
+/// I:  sourceObject = object to be dumped
+///     outputStream = target for the result
+///     fullDump = 0 : show only properties with content
+///              = 1 : show also empty and private properties
+///    drilldownLimit = 0  no drilldown
+///                   = 1..n  max. levelof drilldown
+///                   < 0   unlimitted drilldown
+///    displayName = property name shown
+///    classname   = class name for display 
+/// </pre>   
+ClassMethod dump(
+	sourceObject As %RegisteredObject = "",
+	fullDump As %Boolean = 0,
+	drilldownLimit As %Integer = -1,
+	displayName = "",
+	className = "")
+{
+#dim %tempStream as %Stream.TmpCharacter    
+    if $g(%tempStream),%tempStream.%IsA("%Stream.Object")
+    else  set %tempStream=##class(%Stream.TmpCharacter).%New()
+    if 'drilldownLimit do ..show(displayName,sourceObject) quit
+    if '$isobject(sourceObject) do ..show(displayName,sourceObject) quit
+    set class=##class(%Dictionary.CompiledClass).%OpenId(sourceObject.%ClassName(1),0)
+    if class.Name=className do ..show(displayName,"reverse Reference ---> "_sourceObject) quit
+    set displayName=displayName_$extract(".",displayName]"") 
+    set:className="" className=class.Name
+        
+    for i=1:1:class.Properties.Count() {
+        set property=class.Properties.GetAt(i)
+        set propertyName=property.Name
+            ,collectionType=property.Collection
+        if property.Private {
+            do:fullDump ..show("("_propertyName_")","<private>") 
+            continue   
+            }    
+        if property.MultiDimensional {
+            do:$data(@("sourceObject."_propertyName)) ..multiDim($name(@("sourceObject."_propertyName)),propertyName) 
+            continue
+            } 
+        set value=$zobjproperty(sourceObject,propertyName)
+        if property.Relationship,"parent,one"[property.Cardinality {
+            do ..dump(value,0,1,propertyName)  ; drilldown= 1 prevents endless reference
+            continue 
+            }
+        if collectionType="" {
+            do:value]""!fullDump ..dump(value,fullDump,drilldownLimit-1,displayName_propertyName,className) 
+            continue 
+            }
+        if collectionType="list" {
+            do:'value.Count()&fullDump ..dump("",0,drilldownLimit-1,displayName_propertyName_"()",) 
+            for j=1:1:value.Count() {
+                do ..dump(value.GetAt(j),fullDump,drilldownLimit-1,displayName_propertyName_"("_j_")",className)
+            }
+        }
+        if collectionType="array" { 
+            do:value.Next("")=""&fullDump ..dump("",0,drilldownLimit-1,displayName_propertyName_"()",) 
+            set j="" 
+            for  {
+                set j=value.Next(j) quit:j=""  
+                do ..dump(value.GetAt(j),fullDump,drilldownLimit-1,displayName_propertyName_"("_j_")")
+            }
+        }
     }
-    quit $$$OK     ;; will never happen
 }
 
-/// just a simple example how this may work   
-Method dispatch(ByRef tcp, request As %String) [ ProcedureBlock = 0 ]
+/// <pre>
+/// compose property: value pair and collect in stream
+/// make controls visible
+/// make $LB() readable
+/// I: property =  name for display
+///    value = value of property
+/// </pre>
+ClassMethod show(
+	property As %String = "",
+	value As %String = "",
+	drilldownLimit As %Integer = -1) As %String [ Internal, Private ]
 {
-     set action=+request   
-     if $L($TEXT(@action)) do @action
-     else  set reply="not implemented"
-reply
-     use tcp write reply,!,*-2 
-     quit
-9 ;STOP
-    set reply="Server stopped" do reply ; final reply migth is lost
-    hang ..#SLEEP ZTRAP "STOP" 
-    quit         
-
-1 ;INST
-    set reply="InstanceName: "_^SYS("GREDIR","NSACT")
-    quit 
-
-2 ;PRCC
-    set pid=0
-    &SQL(Select count(pid) into :pid from   %SYS.ProcessQuery)
-    set reply="actual process count: "_pid
+#dim %tempStream as %Stream.TmpCharacter
+        if value]"",$listvalid(value) 
+                { 
+                    do ..lbDump(value,property,drilldownLimit) 
+                    set value="`$lb()`"
+                } 
+       else  {
+             if value?.e1c.e 
+                {
+                for i=$length(value):-1:1 {
+                    if $extract(value,i)?1c set $extract(value,i)="`$c("_$ascii(value,i)_")`" 
+                    }
+                }  
+            }
+        
+        do %tempStream.WriteLine(property_": "_value) quit
     quit
 }
 
-/// client connects to remote server to get some info
-ClassMethod Client() As %Status
+/// <pre>
+/// make a Dump of $LB()
+/// I:  list = the $lb() to be dumped
+///     displayName = Property name
+///     drillddowLimit
+/// </pre>
+ClassMethod lbDump(
+	list As %List = "",
+	displayName As %String = "$lb()",
+	drilldownLimit As %Integer = -1) [ Internal, Private ]
 {
- #dim srv as %Z.remote = ""
-    set sql="SELECT * from %Z.remote"
-    set stmt=##class(%SQL.Statement).%New()
-    set sc=stmt.%Prepare(sql)
-       ,res=stmt.%Execute()
-    do res.%Display()
-    do {
-        read !,"select ServerID:",sid,!
-        if 'sid return '$$$OK
-        set srv=##class(%Z.remote).%OpenId(sid)
-    } while '$ISOBJECT(srv)
-    set tcp="|TCP|"_srv.Listener
-    set $ZE="READ"
-    set $ZTRAP="reset"  
-reset    
-   close tcp
-   if $ZE'["READ",$ZE'["WRITE"  set $ZT="" return '$$$OK 
-   open tcp:(srv.IPaddr:/PORT=srv.Listener):1  else  set $ZT="" return '$$$OK 
-   use 0
-   set (reply,cmd)="" 
-   while '$L(cmd) {
-     read !,"1=INSTANCE NAME",
-          !,"2=PROCESS COUNT",
-          !,"9=STOP REMOTE PING SERVER",
-          !,"*=EXIT",
-          !,": ",cmd,!
-     if "*129"'[cmd set cmd=""
-     if cmd="*" ZTRAP "STOP"
-   }
-   use tcp Write cmd,!,*-2
-   use 0 write "send: ",cmd,!
-   use tcp 
-   for i=1:1:10 read reply:..#SLEEP  if $L(reply) quit
-   else  set reply= "??? missing ??? "
-   use 0 write reply,! 
-   goto reset
+    set:drilldownLimit drilldownLimit=drilldownLimit-1
+    set itemName=displayName_"."
+    if '$listvalid(list) do ..show(displayName,list) quit
+    for itemId=1:1:$listlength(list) {
+        if '$listdata(list,itemId) {
+            do ..show(itemName_itemId,"<NULL>") 
+            continue 
+            }
+        set itemValue=$list(list,itemId)
+        if itemValue=""||'$listvalid(itemValue) {
+            do ..show(itemName_itemId,itemValue) 
+            continue  
+            } 
+        if drilldownLimit {
+            do ..lbDump(itemValue,itemName_itemId,drilldownLimit-1)  
+            }
+        else  {
+            do ..show(itemName_itemId,$select($listvalid(itemValue):"$lb("_$listtostring(itemValue)_")",1:itemValue))  
+            }
+    }
+    quit
+}
+
+/// <pre>
+/// drill into multidimensional property
+/// I: sourceProperty = property to be analyzed
+///    propertyName   = name of sourceProperty
+/// </pre>
+ClassMethod multiDim(
+	sourceProperty As %String,
+	propertyName As %String) [ Internal, Private ]
+{
+    if $data(@sourceProperty)#10 do ..show(propertyName,@sourceProperty)
+    set subscr=""
+    for  {
+        set subscr=$order(@sourceProperty@(subscr)) quit:subscr=""  
+        do ..multiDim($name(@sourceProperty@(subscr)),$name(@propertyName@(subscr)))
+    }
+  quit
 }
 }
