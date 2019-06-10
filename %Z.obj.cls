@@ -5,8 +5,8 @@ Class %Z.obj
 
 /// <pre>    
 /// fill result into a prepared Stream
-/// I:  sourceObject = object to be dumped
-///     outputStream = target for the result
+/// I:  outputStream = target for the result
+///     sourceObject = object to be dumped
 ///     fullDump = 0 : show only properties with content
 ///              = 1 : show also empty a and private properties
 ///    drilldownLimit = 0  no drilldown
@@ -14,8 +14,8 @@ Class %Z.obj
 ///                   < 0   unlimitted drilldown
 /// </pre>   
 ClassMethod dumpToStream(
-	sourceObject As %RegisteredObject = "",
 	outputStream As %Stream.Object = "",
+	sourceObject As %RegisteredObject = "",
 	fullDump As %Boolean = 0,
 	drilldownLimit As %Integer = -1) As %Status
 {
@@ -77,7 +77,7 @@ ClassMethod dump(
 	fullDump As %Boolean = 0,
 	drilldownLimit As %Integer = -1,
 	displayName = "",
-	className = "")
+	className = "") [ Internal, Private ]
 {
 #dim %tempStream as %Stream.TmpCharacter    
     if $g(%tempStream),%tempStream.%IsA("%Stream.Object")
